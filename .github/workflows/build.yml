@@ -25,8 +25,7 @@ jobs:
         run: |
           mkdir -p build
           if [ -f gemini_os.ino ]; then mv gemini_os.ino my-gemini-os.ino; fi
-          # Aici am adaugat FlashMode=dio si FlashFreq=40 pentru a se potrivi cu Flash Tool
-          arduino-cli compile --fqbn esp32:esp32:esp32s3:FlashMode=dio,FlashFreq=40,CDCOnBoot=cdc,PSRAM=opi,FlashSize=16M \
+          arduino-cli compile --fqbn esp32:esp32:esp32s3:CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M \
             --output-dir ./build .
 
       - name: Upload .BIN Artifact
