@@ -25,7 +25,7 @@ jobs:
         run: |
           mkdir -p build
           if [ -f gemini_os.ino ]; then mv gemini_os.ino my-gemini-os.ino; fi
-          arduino-cli compile --fqbn esp32:esp32:esp32s3:CDCOnBoot=cdc,PSRAM=opi,FlashSize=16M,PartitionScheme=default_16MB \
+          arduino-cli compile --fqbn esp32:esp32:esp32s3:CDCOnBoot=cdc,PSRAM=opi,FlashSize=8M \
             --output-dir ./build .
 
       - name: Upload .BIN Artifact
