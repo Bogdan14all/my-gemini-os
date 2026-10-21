@@ -11,7 +11,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Generate ESP-IDF Structure & Compile
+        shell: bash
         run: |
+          . /opt/esp/idf/export.sh
+
           mkdir -p main
 
           # 1. CMakeLists principal
@@ -102,8 +105,8 @@ jobs:
               ESP_LOGI(TAG, "===============================================");
 
               i2c_master_init();
-              tca9554_write(0x03, 0x00); // Configurare porturi ca iesire
-              tca9554_write(0x01, 0xFF); // Activare Backlight, Power Hold si Difuzor
+              tca9554_write(0x03, 0x00);
+              tca9554_write(0x01, 0xFF);
               ESP_LOGI(TAG, "Hardware TCA9554 initializat.");
 
               gpio_config_t io_conf = {
@@ -133,9 +136,13 @@ jobs:
           idf.py set-target esp32s3
           idf.py build
 
-          # 7. Unire automata conform tabelei de partitii oficiale
+          # 7. Unire automata conform tabelei de partitii
           cd build
-          esptool.py --chip esp32s3 merge_bin -o gemini-os-esp-idf-merged.bin --fill-flash-size 16MB @flash_args
+          if [ -f flash_project_args ]; then
+            esptool.py --chip esp32s3 merge_bin -o gemini-os-esp-idf-merged.bin --fill-flash-size 16MB @flash_project_args
+          else
+            esptool.py --chip esp32s3 merge_bin -o gemini-os-esp-idf-merged.bin --flash_mode dio --flash_freq 40m --flash_size 16MB --fill-flash-size 16MB 0x0 bootloader/bootloader.bin 0x9000 partition_table/partition-table.bin 0x20000 my-gemini-os.bin
+          fi
           mkdir -p ../dist
           cp gemini-os-esp-idf-merged.bin ../dist/
 
