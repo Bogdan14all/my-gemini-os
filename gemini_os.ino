@@ -1,8 +1,8 @@
 /*
- * Gemini OS v3 - Waveshare ESP32-S3 Touch LCD 3.49" V2
+ * Gemini OS v4 - Waveshare ESP32-S3 Touch LCD 3.49" V2
  * Ecran: AXS15231B QSPI (172x640) | Touch: I2C (0x3B)
- * Expander: TCA9554 (0x20) -> Backlight, Power, Speaker PA
- * Audio: I2S Difuzor (ES8311) & Microfon (ES7210)
+ * Expander: TCA9554 (0x20) -> Backlight, Power Hold, Speaker PA
+ * Audio: I2S Difuzor & Microfon Onboard
  */
 
 #include <WiFi.h>
@@ -37,7 +37,7 @@
 #define TFT_D2    15
 #define TFT_D3    13
 
-// --- PINI I2C, TOUCH & EXPANDER ---
+// --- PINI I2C & BUTOANE ---
 #define I2C_SDA         2
 #define I2C_SCL         1
 #define TCA9554_ADDR    0x20
@@ -45,16 +45,16 @@
 #define BATTERY_ADC_PIN 4
 #define BOOT_BUTTON_PIN 0
 
-// --- PINI AUDIO I2S (DIFUZOR & MICROFON) ---
+// --- PINI AUDIO I2S ---
 #define I2S_NUM         I2S_NUM_0
 #define I2S_BCK_IO      46
 #define I2S_WS_IO       45
 #define I2S_DO_IO       42
 #define I2S_DI_IO       41
 
-// --- OBIECTE HARDWARE ---
-Arduino_DataBus *bus = new Arduino_ESP32QSPI(TFT_CS, TFT_SCLK, TFT_D0, TFT_D1, TFT_D2, TFT_D3);
-Arduino_GFX *gfx = new Arduino_AXS15231B(bus, TFT_RST, 0, true);
+// Obiecte alocate dinamic in setup() pentru a evita Kernel Panic la boot
+Arduino_DataBus *bus = nullptr;
+Arduino_GFX *gfx = nullptr;
 Preferences prefs;
 
 // --- STARE SISTEM ---
@@ -96,11 +96,11 @@ void setDisplayBacklight(bool enable) {
 }
 
 void initTCA9554() {
-    tca9554_write(0x03, 0x00); // Configurare toti pinii ca iesire
-    tca9554_write(0x01, 0xFF); // Activare Backlight, Power Hold si Difuzor PA
+    tca9554_write(0x03, 0x00); // Toate porturile ca iesire
+    tca9554_write(0x01, 0xFF); // Activare Backlight, Power Hold si Difuzor
 }
 
-// --- INITIALIZARE & REDARE SUNET DIFUZOR (I2S) ---
+// --- INITIALIZARE SI REDARE AUDIO I2S ---
 void initAudio() {
     i2s_config_t i2s_config = {
         .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_RX),
@@ -126,14 +126,13 @@ void initAudio() {
     setSpeakerPower(true);
 }
 
-// Redare semnal sonor in difuzor (feedback acustic)
 void playTone(int freqHz, int durationMs) {
     int samples = (16000 * durationMs) / 1000;
     int16_t sample_val;
     size_t bytes_written;
 
     for (int i = 0; i < samples; i++) {
-        sample_val = (int16_t)(sin(2 * 3.14159 * freqHz * i / 16000) * 10000.0 * (systemVolume / 100.0));
+        sample_val = (int16_t)(sin(2 * 3.14159 * freqHz * i / 16000) * 8000.0 * (systemVolume / 100.0));
         int16_t stereo[2] = { sample_val, sample_val };
         i2s_write(I2S_NUM, stereo, sizeof(stereo), &bytes_written, portMAX_DELAY);
     }
@@ -163,7 +162,6 @@ bool getTouch(int16_t *x, int16_t *y) {
     return false;
 }
 
-// --- NIVEL BATERIE SI CEAS ---
 int getBatteryPercent() {
     uint32_t raw = analogRead(BATTERY_ADC_PIN);
     float mv = (raw / 4095.0) * 3.3 * 2.0 * 1000.0;
@@ -179,8 +177,9 @@ String getFormattedTime() {
     return String(buf);
 }
 
-// --- INTERFATA GRAFICA (172x640) ---
+// --- DESENARE INTERFATA GRAFICA (172x640) ---
 void drawTopBar() {
+    if (!gfx) return;
     gfx->fillRect(0, 0, 172, 28, DARKGRAY);
     gfx->setTextColor(WHITE);
     gfx->setTextSize(1);
@@ -199,6 +198,7 @@ void drawTopBar() {
 }
 
 void drawMainUI() {
+    if (!gfx) return;
     gfx->fillScreen(BLACK);
     drawTopBar();
 
@@ -248,7 +248,6 @@ void drawMainUI() {
     gfx->println("STANDBY / OPRIRE");
 }
 
-// --- COMUTARE STANDBY & OPRIRE ---
 void enterStandby() {
     isStandby = true;
     currentStatus = "In Standby. Apasa BOOT.";
@@ -262,15 +261,17 @@ void exitStandby() {
     setDisplayBacklight(true);
     setSpeakerPower(true);
     drawMainUI();
-    playTone(880, 150); // Chime pornire
+    playTone(880, 150);
 }
 
 void powerOffSystem() {
-    gfx->fillScreen(BLACK);
-    gfx->setTextColor(RED);
-    gfx->setTextSize(2);
-    gfx->setCursor(30, 300);
-    gfx->println("OPRIRE...");
+    if (gfx) {
+        gfx->fillScreen(BLACK);
+        gfx->setTextColor(RED);
+        gfx->setTextSize(2);
+        gfx->setCursor(30, 300);
+        gfx->println("OPRIRE...");
+    }
     playTone(440, 300);
     delay(500);
     setSpeakerPower(false);
@@ -279,28 +280,24 @@ void powerOffSystem() {
     esp_deep_sleep_start();
 }
 
-// --- CONVERSATIE: CAPTARE VOCE SI REDARE RASPUNS ---
 void handleVoiceConversation() {
     currentStatus = "Ascult la microfon...";
     drawMainUI();
-    playTone(950, 120); // Bip start inregistrare
+    playTone(950, 120);
 
-    // Buffer citire esantioane din microfon I2S
     int16_t micBuffer[512];
     size_t bytesRead;
-    for (int i = 0; i < 40; i++) {
+    for (int i = 0; i < 30; i++) {
         i2s_read(I2S_NUM, micBuffer, sizeof(micBuffer), &bytesRead, 50 / portTICK_PERIOD_MS);
     }
 
     currentStatus = "Gandesc la raspuns...";
     drawMainUI();
 
-    // Simulare raspuns primit de la Gemini API
-    lastAiResponse = "Am receptionat comanda. Redau raspunsul vocal in difuzorul integrat.";
+    lastAiResponse = "Am receptionat mesajul tau vocal. Redau pe difuzorul integrat.";
     currentStatus = "Redau in difuzor...";
     drawMainUI();
 
-    // Redare secventa audio in difuzor (chime melodie + notificare)
     playTone(523, 100);
     delay(50);
     playTone(659, 100);
@@ -315,22 +312,28 @@ void setup() {
     Serial.begin(115200);
     pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
 
+    // 1. Initializare alimentare I2C si expander
     Wire.begin(I2C_SDA, I2C_SCL);
     initTCA9554();
+
+    // 2. Alocare dinamica a ecranului DUPA pornirea alimentarii
+    bus = new Arduino_ESP32QSPI(TFT_CS, TFT_SCLK, TFT_D0, TFT_D1, TFT_D2, TFT_D3);
+    gfx = new Arduino_AXS15231B(bus, TFT_RST, 0, true);
 
     gfx->begin();
     setDisplayBacklight(true);
     gfx->fillScreen(BLACK);
 
+    // 3. Initializare audio si ceas
     initAudio();
     configTime(7200, 3600, "pool.ntp.org");
 
     drawMainUI();
-    playTone(1000, 150); // Sunet de confirmare boot
+    playTone(1000, 150); // Chime de boot reusit
 }
 
 void loop() {
-    // 1. BUTON FIZIC BOOT (GPIO 0)
+    // 1. GESTIONARE BUTON FIZIC BOOT (GPIO 0)
     if (digitalRead(BOOT_BUTTON_PIN) == LOW) {
         unsigned long pressStart = millis();
         while (digitalRead(BOOT_BUTTON_PIN) == LOW) delay(10);
@@ -349,33 +352,26 @@ void loop() {
         return;
     }
 
-    // 2. ACTUALIZARE STATUS LA 10 SECUNDE
+    // 2. REFRESH STATUS LA 10 SECUNDE
     if (millis() - lastTopBarUpdate > 10000) {
         drawTopBar();
         lastTopBarUpdate = millis();
     }
 
-    // 3. DETECTIE TOUCH
+    // 3. DETECTIE TOUCHSCREEN
     int16_t touchX, touchY;
     if (getTouch(&touchX, &touchY)) {
-        // Buton Standby / Oprire (Y: 585 - 625)
         if (touchY >= 585 && touchY <= 625) {
             enterStandby();
             delay(300);
-        }
-        // Buton Vorbeste / Conversatie (Y: 410 - 465)
-        else if (touchY >= 410 && touchY <= 465) {
+        } else if (touchY >= 410 && touchY <= 465) {
             handleVoiceConversation();
-        }
-        // Buton Volum (Y: 535 - 575, X: 10 - 82)
-        else if (touchY >= 535 && touchY <= 575 && touchX <= 82) {
+        } else if (touchY >= 535 && touchY <= 575 && touchX <= 82) {
             systemVolume = (systemVolume >= 100) ? 20 : systemVolume + 20;
             drawMainUI();
             playTone(600 + (systemVolume * 4), 100);
             delay(200);
-        }
-        // Buton Luminozitate (Y: 535 - 575, X: 90 - 162)
-        else if (touchY >= 535 && touchY <= 575 && touchX >= 90) {
+        } else if (touchY >= 535 && touchY <= 575 && touchX >= 90) {
             systemBrightness = (systemBrightness >= 100) ? 25 : systemBrightness + 25;
             drawMainUI();
             delay(200);
