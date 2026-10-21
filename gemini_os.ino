@@ -11,6 +11,11 @@
 #include <ArduinoJson.h>
 #include <Arduino_GFX_Library.h>
 
+// Definitii culori RGB565
+#define BLACK 0x0000
+#define CYAN  0x07FF
+#define WHITE 0xFFFF
+
 #define TFT_CS   11
 #define TFT_DC   8
 #define TFT_RST  9
