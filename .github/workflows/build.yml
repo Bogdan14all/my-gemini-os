@@ -24,6 +24,7 @@ jobs:
       - name: Compile to .BIN
         run: |
           mkdir -p build
+          if [ -f gemini_os.ino ]; then mv gemini_os.ino my-gemini-os.ino; fi
           arduino-cli compile --fqbn esp32:esp32:esp32s3:CDCOnBoot=cdc,PSRAM=opi,FlashSize=16M \
             --output-dir ./build .
 
