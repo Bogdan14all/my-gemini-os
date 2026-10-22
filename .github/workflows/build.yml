@@ -26,33 +26,59 @@ jobs:
             find ws/Firmware -type f -name "*.bin" -exec cp {} "$OUT_DIR/" \; 2>/dev/null || true
           fi
 
-          echo "=== 3. Curatare lock corupt si compilare LVGL ==="
+          echo "=== 3. Aplicare patch pentru erorile de C++ Waveshare ==="
           cd ws/ESP-IDF/09_LVGL_V8_Test
-          
-          # Eliminam fisierul lock corupt pentru a permite recreerea lui automata
           rm -f dependencies.lock
           rm -rf build
 
+          python3 - << 'PYEOF'
+          with open("main/main.cpp", "r") as f:
+              code = f.read()
+
+          # Rezolvare eroare 1: definire i2c_master_get_bus_handle pentru TCA9554
+          patch = """
+          #include "driver/i2c_master.h"
+          static inline esp_err_t i2c_master_get_bus_handle(int port, i2c_master_bus_handle_t *handle) {
+              i2c_master_bus_config_t conf = {};
+              conf.i2c_port = (i2c_port_num_t)port;
+              conf.sda_io_num = (gpio_num_t)2;
+              conf.scl_io_num = (gpio_num_t)1;
+              conf.clk_source = I2C_CLK_SRC_DEFAULT;
+              conf.glitch_ignore_cnt = 7;
+              conf.flags.enable_internal_pullup = true;
+              return i2c_new_master_bus(&conf, handle);
+          }
+          """
+          code = patch + code
+
+          # Rezolvare eroare 2: cast pointer pentru LCD_HOST
+          code = code.replace("esp_lcd_new_panel_io_spi(LCD_HOST", "esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST")
+
+          with open("main/main.cpp", "w") as f:
+              f.write(code)
+          print("Patch aplicat cu succes pe main.cpp")
+          PYEOF
+
+          echo "=== 4. Compilare oficiala LVGL ==="
           idf.py set-target esp32s3
           idf.py build
 
           cd build
           if [ -f flash_project_args ]; then
-            esptool.py --chip esp32s3 merge_bin -o lvgl_demo_merged.bin --fill-flash-size 16MB @flash_project_args
-            cp lvgl_demo_merged.bin "$OUT_DIR/"
+            esptool.py --chip esp32s3 merge_bin -o waveshare-lvgl-merged.bin --fill-flash-size 16MB @flash_project_args
+            cp waveshare-lvgl-merged.bin "$OUT_DIR/"
           elif [ -f flash_args ]; then
-            esptool.py --chip esp32s3 merge_bin -o lvgl_demo_merged.bin --fill-flash-size 16MB @flash_args
-            cp lvgl_demo_merged.bin "$OUT_DIR/"
+            esptool.py --chip esp32s3 merge_bin -o waveshare-lvgl-merged.bin --fill-flash-size 16MB @flash_args
+            cp waveshare-lvgl-merged.bin "$OUT_DIR/"
           fi
 
           find . -maxdepth 1 -name "*.bin" -exec cp {} "$OUT_DIR/" \; 2>/dev/null || true
 
           cd "$GITHUB_WORKSPACE"
-          echo "=== 4. Fisiere finale pregatite ==="
+          echo "=== 5. Fisiere finale in dist ==="
           ls -la "$OUT_DIR"
 
       - name: Upload BIN Artifacts
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: waveshare-official-bin
