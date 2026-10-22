@@ -5,60 +5,47 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: espressif/idf:v5.3.1
+      image: espressif/idf:v5.2.2
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Fetch Official Waveshare Repo & Build
+      - name: Build Waveshare Official LVGL Demo
         shell: bash
         run: |
           . /opt/esp/idf/export.sh
           OUT_DIR="$GITHUB_WORKSPACE/dist"
           mkdir -p "$OUT_DIR"
 
-          echo "=== 1. Clonare repozitoriu oficial Waveshare ==="
+          echo "=== 1. Clonare repozitoriu Waveshare ==="
           git clone --depth 1 https://github.com/waveshareteam/ESP32-S3-Touch-LCD-3.49-V2.git ws
 
-          echo "=== 2. Copiere binare gata compilate din folderul Firmware ==="
+          echo "=== 2. Copiere binare existente din folderul Firmware ==="
           if [ -d "ws/Firmware" ]; then
             find ws/Firmware -type f -name "*.bin" -exec cp {} "$OUT_DIR/" \; || true
           fi
 
-          echo "=== 3. Cautare si compilare proiect LCD / LVGL Waveshare ==="
-          LCD_PROJ=$(find ws/ESP-IDF -maxdepth 2 -type d \( -iname "*lcd*" -o -iname "*lvgl*" -o -iname "*display*" -o -iname "*factory*" \) | head -n 1)
+          echo "=== 3. Compilare 09_LVGL_V8_Test cu ESP-IDF v5.2.2 ==="
+          cd ws/ESP-IDF/09_LVGL_V8_Test
+          idf.py set-target esp32s3
+          idf.py build
 
-          if [ -z "$LCD_PROJ" ]; then
-            LCD_PROJ=$(find ws/ESP-IDF -maxdepth 2 -type f -name "CMakeLists.txt" -exec dirname {} \; | grep -v -E "WIFI|BLE" | head -n 1)
+          cd build
+          if [ -f flash_project_args ]; then
+            esptool.py --chip esp32s3 merge_bin -o lvgl_demo_merged.bin --fill-flash-size 16MB @flash_project_args
+          elif [ -f flash_args ]; then
+            esptool.py --chip esp32s3 merge_bin -o lvgl_demo_merged.bin --fill-flash-size 16MB @flash_args
           fi
-
-          if [ -n "$LCD_PROJ" ] && [ -d "$LCD_PROJ" ]; then
-            echo "Director selectat pentru compilare: $LCD_PROJ"
-            cd "$LCD_PROJ"
-            idf.py set-target esp32s3
-            idf.py build
-            
-            if [ -f build/flash_project_args ]; then
-              cd build
-              esptool.py --chip esp32s3 merge_bin -o waveshare-lcd-merged.bin --fill-flash-size 16MB @flash_project_args || true
-              cp waveshare-lcd-merged.bin "$OUT_DIR/" || true
-              cd ..
-            elif [ -f build/flash_args ]; then
-              cd build
-              esptool.py --chip esp32s3 merge_bin -o waveshare-lcd-merged.bin --fill-flash-size 16MB @flash_args || true
-              cp waveshare-lcd-merged.bin "$OUT_DIR/" || true
-              cd ..
-            fi
-            
-            find build/ -maxdepth 1 -name "*.bin" -exec cp {} "$OUT_DIR/" \; || true
-          fi
+          
+          cp lvgl_demo_merged.bin "$OUT_DIR/" || true
+          find . -maxdepth 1 -name "*.bin" -exec cp {} "$OUT_DIR/" \; || true
 
           cd "$GITHUB_WORKSPACE"
-          echo "=== 4. Fisiere generate pentru descarcare ==="
+          echo "=== 4. Fisiere finale pregatite ==="
           ls -la "$OUT_DIR"
 
       - name: Upload BIN Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: gemini-os-esp-idf-bin
+          name: waveshare-official-bin
           path: dist/*
