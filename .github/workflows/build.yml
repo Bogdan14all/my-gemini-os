@@ -22,29 +22,37 @@ jobs:
 
           echo "=== 2. Copiere binare existente din folderul Firmware ==="
           if [ -d "ws/Firmware" ]; then
-            find ws/Firmware -type f -name "*.bin" -exec cp {} "$OUT_DIR/" \; || true
+            find ws/Firmware -type f -name "*.zip" -exec unzip -o {} -d "$OUT_DIR/" \; 2>/dev/null || true
+            find ws/Firmware -type f -name "*.bin" -exec cp {} "$OUT_DIR/" \; 2>/dev/null || true
           fi
 
-          echo "=== 3. Compilare 09_LVGL_V8_Test cu ESP-IDF v5.2.2 ==="
+          echo "=== 3. Curatare lock corupt si compilare LVGL ==="
           cd ws/ESP-IDF/09_LVGL_V8_Test
+          
+          # Eliminam fisierul lock corupt pentru a permite recreerea lui automata
+          rm -f dependencies.lock
+          rm -rf build
+
           idf.py set-target esp32s3
           idf.py build
 
           cd build
           if [ -f flash_project_args ]; then
             esptool.py --chip esp32s3 merge_bin -o lvgl_demo_merged.bin --fill-flash-size 16MB @flash_project_args
+            cp lvgl_demo_merged.bin "$OUT_DIR/"
           elif [ -f flash_args ]; then
             esptool.py --chip esp32s3 merge_bin -o lvgl_demo_merged.bin --fill-flash-size 16MB @flash_args
+            cp lvgl_demo_merged.bin "$OUT_DIR/"
           fi
-          
-          cp lvgl_demo_merged.bin "$OUT_DIR/" || true
-          find . -maxdepth 1 -name "*.bin" -exec cp {} "$OUT_DIR/" \; || true
+
+          find . -maxdepth 1 -name "*.bin" -exec cp {} "$OUT_DIR/" \; 2>/dev/null || true
 
           cd "$GITHUB_WORKSPACE"
           echo "=== 4. Fisiere finale pregatite ==="
           ls -la "$OUT_DIR"
 
       - name: Upload BIN Artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: waveshare-official-bin
